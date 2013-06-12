@@ -5,7 +5,7 @@
 // the most basic reduce just emits one 'data' event after it has recieved 'end'
 
 var stream = require('readable-stream')
-  , Stream = stream.Stream
+  , Stream = require('stream').Stream
   , es = exports
   , through = require('through')
   , from = require('from')
@@ -31,7 +31,7 @@ es.pipeline = es.connect = es.pipe = pipeline
 es.concat = //actually this should be called concat
 es.merge = function (/*streams...*/) {
   var toMerge = [].slice.call(arguments)
-  var stream = new Stream()
+    , duplex  = new stream.Duplex();
   var endCount = 0
   stream.writable = stream.readable = true
 
@@ -67,7 +67,7 @@ es.writeArray = function (done) {
     throw new Error('function writeArray (done): done must be function');
 
   var arr = []
-    , arrayStream = new Stream.Writable();
+    , arrayStream = new stream.Writable({ objectMode : true });
 
   arrayStream._write = function (chunk, encoding, callback) {
     arr.push(chunk);
@@ -75,12 +75,8 @@ es.writeArray = function (done) {
   };
 
   arrayStream
-    .on('error',  function (err) { done(err) })
-    .on('finish', function ()    { done(null, arr); })
-
-  arrayStream.on('finish', function () {
-    done(null, arr);
-  });
+    .on('error',  function (err) { done(err); })
+    .on('finish', function ()    { done(null, arr); });
 
   return arrayStream;
 };
@@ -91,37 +87,19 @@ es.writeArray = function (done) {
 //respecting pause() and resume()
 
 es.readArray = function (array) {
-  var stream = new Stream()
-    , i = 0
-    , paused = false
-    , ended = false
-
-  stream.readable = true
-  stream.writable = false
-
   if(!Array.isArray(array))
-    throw new Error('event-stream.read expects an array')
+    throw new Error('event-stream.read expects an array');
 
-  stream.resume = function () {
-    if(ended) return
-    paused = false
-    var l = array.length
-    while(i < l && !paused && !ended) {
-      stream.emit('data', array[i++])
-    }
-    if(i == l && !ended)
-      ended = true, stream.readable = false, stream.emit('end')
-  }
-  process.nextTick(stream.resume)
-  stream.pause = function () {
-     paused = true
-  }
-  stream.destroy = function () {
-    ended = true
-    stream.emit('close')
-  }
-  return stream
-}
+  var readStream = new stream.Readable({ objectMode : true })
+    , i = 0;
+
+  readStream._read = function () {
+    this.push(array[i]);
+    i++;
+  };
+
+  return readStream;
+};
 
 //
 // readable (asyncFunction)
@@ -132,55 +110,22 @@ es.readArray = function (array) {
 
 es.readable =
 function (func, continueOnError) {
-  var stream = new Stream()
-    , i = 0
-    , paused = false
-    , ended = false
-    , reading = false
-
-  stream.readable = true
-  stream.writable = false
-
   if('function' !== typeof func)
     throw new Error('event-stream.readable expects async function')
 
-  stream.on('end', function () { ended = true })
+  var readable = new stream.Readable({ objectMode : true })
+    , i = 0;
 
-  function get (err, data) {
-
-    if(err) {
-      stream.emit('error', err)
-      if(!continueOnError) stream.emit('end')
-    } else if (arguments.length > 1)
-      stream.emit('data', data)
-
-    process.nextTick(function () {
-      if(ended || paused || reading) return
-      try {
-        reading = true
-        func.call(stream, i++, function () {
-          reading = false
-          get.apply(null, arguments)
-        })
-      } catch (err) {
-        stream.emit('error', err)
+  readable._read = function () {
+    func.call(this, i++, function (err) {
+      if (err) {
+        if (!continueOnError) readable.emit('err', err);
+        else readable.emit('end');
       }
-    })
-  }
-  stream.resume = function () {
-    paused = false
-    get()
-  }
-  process.nextTick(get)
-  stream.pause = function () {
-     paused = true
-  }
-  stream.destroy = function () {
-    stream.emit('end')
-    stream.emit('close')
-    ended = true
-  }
-  return stream
+    });
+  };
+
+  return readable
 }
 
 

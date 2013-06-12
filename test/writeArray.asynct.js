@@ -10,9 +10,9 @@ exports ['write an array'] = function (test) {
   var writer = es.writeArray(function (err, array){
     if(err) throw err //unpossible
     it(array).deepEqual(readThis)
-    test.done()     
+    test.done()
   })
-  
+
   d.each(readThis, writer.write.bind(writer))
   writer.end()
 
@@ -21,10 +21,8 @@ exports ['write an array'] = function (test) {
 
 exports ['writer is writable, but not readable'] = function (test) {
   var reader = es.writeArray(function () {})
-  it(reader).has({
-    readable: false,
-    writable: true
-  })
+  it(reader.write).function();
+  it(reader.read).equal(undefined);
 
   test.done()
 }
